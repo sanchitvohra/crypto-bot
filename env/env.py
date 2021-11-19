@@ -3,23 +3,34 @@ import pandas as pd
 import random
 
 class CryptoEnv():
-    def __init__(self, data, balance, trading_fee, max_action):
+    def __init__(self, data, balance, max_trade, trading_fee, history_len):
         self.data = data
         self.trading_fee = trading_fee
-        self.max_action = max_action
+        self.history_len = history_len
+        self.starting_balance = balance
+        self.max_trade = max_trade
 
-        self.time = 0 # random start
         self.portfolio = balance
         self.balance = balance
         self.coins = {'BCH': 0, 'BTC': 1, 'ETH': 2, 'LTC': 3, 'XRP': 4}
-        self.account = np.zeros(len(self.coins), dtype=np.float32) # amount of each coin owned
 
-        self.state_index = random.randint(0, data.shape[1] - 1000) # randomly initialize start point
+        self.reset()
+
+    def reset(self):
+        self.portfolio = self.starting_balance
+        self.state_index = random.randint(0, self.data.shape[1] - 1000)
         self.state = self.data[:, self.state_index, :]
 
+        weights = np.random.dirichlet(np.ones(1 + len(self.coins)), size=1)[0]
+        
+        self.balance = weights[0] * self.portfolio
+        self.account = np.zeros(len(self.coins), dtype=np.float32)
+
+        for coin in range(len(self.coins)):
+            self.account[coin] = (weights[coin + 1] * self.portfolio) / self.state[coin, 1] 
+
     def step(self, actions):
-        # amount in USD to buy/sell for each coin
-        exec_actions = actions * self.max_action
+        exec_actions = actions * self.max_trade
         for coin in self.coins.keys():
             if exec_actions[self.coins[coin]] < 0:
                 self.sell(self.coins[coin], -1 * exec_actions[self.coins[coin]])
@@ -29,20 +40,37 @@ class CryptoEnv():
         self.state_index += 1
         self.state = self.data[:, self.state_index, :]        
 
-    def buy(self, coin, amount):
+    def buy(self, coin, quantity):
+        amount = quantity * self.state[coin, 1]
+
         if amount > self.balance:
             amount = self.balance
+            
+        buy_amount = (1 - self.trading_fee) * amount    
+        buy_quantity = amount / self.state[coin, 1]
 
-        # pessimistically take high price
-        account = amount / self.state[coin, 1]
-        self.account[coin] += account
-        self.balance -= amount
+        self.account[coin] += buy_quantity
+        self.balance -= buy_amount
 
-    def sell(self, coin, amount):
-        # pessimistically take high price
-        account = amount / self.state[coin, 1]
-        if account > self.account[coin]:
-            account = self.account[coin]
+    def sell(self, coin, quantity):
+        if quantity > self.account[coin]:
+            quantity = self.account[coin]
 
-        self.account[coin] -= account
-        self.balance += amount
+        sell_amount = quantity * self.state[coin, 1]
+        sell_quantity = quantity
+
+        self.account[coin] -= sell_quantity
+        self.balance += sell_amount
+
+
+    def get_state(self):
+        normalized_state = self.state
+        normalized_state[:, :4] = normalized_state[:, :4] * (10 ** -5)
+        normalized_state[:, 4] = normalized_state[:, 4] * (10 ** -8)
+        normalized_state[:, 5:] = normalized_state[:, 5:] * (10 ** -4)
+        normalized_account = self.account
+        normalized_account = normalized_account / (self.max_trade * (10 ** 4))
+        normalized_balance = self.balance
+        normalized_balance = normalized_balance / (self.starting_balance * (10 ** 3))
+        
+        return normalized_state, np.hstack([normalized_balance, normalized_account])

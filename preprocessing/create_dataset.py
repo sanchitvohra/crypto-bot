@@ -38,3 +38,7 @@ def process_all():
     max_norm = np.max(final, axis=1)
     min_norm = np.min(final, axis=1)
     return final, max_norm, min_norm
+
+def load_data():
+    data = np.load("data/crypto_data.npy")
+    return data
