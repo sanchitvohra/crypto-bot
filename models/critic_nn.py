@@ -2,9 +2,9 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
 
-class ActorNN(nn.Module):
+class CriticNN(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_layers, device):
-        super(ActorNN, self).__init__()
+        super(CriticNN, self).__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
 
