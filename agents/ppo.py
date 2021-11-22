@@ -69,7 +69,7 @@ class PPO:
                 discounted_reward = reward + (self.gamma * discounted_reward)
                 env_rewards.insert(0, discounted_reward)
             env_rewards = torch.tensor(env_rewards, dtype=torch.float32).to(self.device)
-            # env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
+            env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
             rewards.append(env_rewards)
             
         rewards = torch.stack(rewards)

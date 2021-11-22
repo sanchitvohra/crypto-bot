@@ -24,6 +24,10 @@ class ActorCritic(nn.Module):
         
         return action.detach(), action_logprob.detach()
 
+    def validate(self, state):
+        action_mean = self.actor(state).detach().cpu().numpy()
+        return action_mean
+
     def evaluate(self, state, action):
         action_mean = self.actor(state)
         action_var = self.action_var.expand_as(action_mean)
