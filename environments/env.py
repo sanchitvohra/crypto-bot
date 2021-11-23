@@ -30,6 +30,7 @@ class CryptoEnv():
         
         self.balance = self.portfolio
         self.account = np.zeros(len(self.coins), dtype=np.float32)
+        self.account_dollars = np.zeros(len(self.coins), dtype=np.float32)
 
         self.num_coins = len(self.coins)
         self.state_dim = self.state.shape[1]
@@ -52,9 +53,10 @@ class CryptoEnv():
 
         self.state_index += 1
         self.state = self.data[:, self.state_index, :]
+        self.account_dollars = self.state[:, 1] * self.account
         old_portfolio = self.portfolio
         self.portfolio = self.balance + np.sum(self.state[:, 1] * self.account)
-        return self.portfolio - old_portfolio   
+        return self.portfolio - old_portfolio
 
     def buy(self, coin, amount):
         if amount < 250.0:
@@ -94,8 +96,8 @@ class CryptoEnv():
         normalized_state = self.normalize_state(self.state)
         if self.history_len > 0:
             normalized_history = np.stack(self.prev_states)
-        normalized_account = np.copy(self.account)
-        normalized_account = normalized_account * (10 ** -4)
+        normalized_account = np.copy(self.account_dollars)
+        normalized_account = normalized_account * (10 ** -6)
         normalized_balance = np.copy(self.balance)
         normalized_balance = normalized_balance * (10 ** -8)
         
@@ -131,10 +133,10 @@ class CryptoEnv():
         return price_state
 
     def get_account_state(self, normalize):
-        normalized_account = np.copy(self.account)
+        normalized_account = np.copy(self.account_dollars)
         normalized_balance = np.copy(self.balance)
         if normalize:
-            normalized_account = normalized_account * (10 ** -4)
+            normalized_account = normalized_account * (10 ** -6)
             normalized_balance = normalized_balance * (10 ** -8)
 
         return np.hstack([normalized_balance, normalized_account])

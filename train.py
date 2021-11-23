@@ -28,8 +28,8 @@ def train():
     ep_len = 10000
     action_std = 0.5                    # starting std for action distribution (Multivariate Normal)
     action_std_decay_rate = 0.05        # linearly decay action_std (action_std = action_std - action_std_decay_rate)
-    min_action_std = 0.005              # minimum action_std (stop decay after action_std <= min_action_std)
-    action_std_decay_freq = 1           # action_std decay frequency (in num training steps)
+    min_action_std = 0.1                # minimum action_std (stop decay after action_std <= min_action_std)
+    action_std_decay_freq = 4           # action_std decay frequency (in num training steps)
 
 
     # environment configuration
