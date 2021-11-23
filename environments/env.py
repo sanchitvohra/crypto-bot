@@ -27,15 +27,12 @@ class CryptoEnv():
             self.prev_states.append(self.normalize_state(self.state))
             self.state_index += 1
             self.state = self.data[:, self.state_index, :]
-
-
-        # weights = np.random.dirichlet(np.ones(1 + len(self.coins)), size=1)[0]
         
         self.balance = self.portfolio
         self.account = np.zeros(len(self.coins), dtype=np.float32)
 
-        # for coin in range(len(self.coins)):
-        #     self.account[coin] = (weights[coin + 1] * self.portfolio) / self.state[coin, 1] 
+        self.num_coins = len(self.coins)
+        self.state_dim = self.state.shape[1]
 
     def validate(self):
         self.reset(self.data.shape[1] - 10001 - self.history_len)
@@ -52,10 +49,11 @@ class CryptoEnv():
             self.prev_states = self.prev_states[1:]
             self.prev_states.append(self.normalize_state(self.state))
 
+
         self.state_index += 1
         self.state = self.data[:, self.state_index, :]
         old_portfolio = self.portfolio
-        self.portfolio = np.sum(self.state[:, 1] * self.account)
+        self.portfolio = self.balance + np.sum(self.state[:, 1] * self.account)
         return self.portfolio - old_portfolio   
 
     def buy(self, coin, amount):
@@ -64,8 +62,9 @@ class CryptoEnv():
         if amount > self.balance:
             amount = self.balance
             
-        buy_amount = (1 + self.trading_fee) * amount    
-        buy_quantity = amount / self.state[coin, 1]
+        trading_fee = amount * self.trading_fee
+        buy_amount = amount - trading_fee
+        buy_quantity = buy_amount / self.state[coin, 1]
 
         self.account[coin] += buy_quantity
         self.balance -= buy_amount
@@ -111,8 +110,32 @@ class CryptoEnv():
         else:
             return normalized_state, np.hstack([normalized_balance, normalized_account])
 
-    def get_price_state(self, flatten):
+    def get_price_state(self, flatten, normalize):
         price_state = np.copy(self.state[:, :5])
-        price_state[:, :4] *= (10 ** -5)
-        price_state[:, 4] = (10 ** -8)
+        if normalize:
+            price_state[:, :4] *= (10 ** -5)
+            price_state[:, 4] *= (10 ** -8)
+        if flatten:
+            return price_state.reshape(-1)
+        else:
+            return price_state
+
+    def unormalize_price(self, price, flatten):
+        price_state = np.copy(price)
+        if flatten:
+            price_state = price_state.reshape(self.num_coins, self.state_dim)
+        
+        price_state[:, :4] *= (10 ** 5)
+        price_state[:, 4] *= (10 ** 8)
+
+        return price_state
+
+    def get_account_state(self, normalize):
+        normalized_account = np.copy(self.account)
+        normalized_balance = np.copy(self.balance)
+        if normalize:
+            normalized_account = normalized_account * (10 ** -4)
+            normalized_balance = normalized_balance * (10 ** -8)
+
+        return np.hstack([normalized_balance, normalized_account])
 

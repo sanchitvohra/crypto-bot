@@ -88,9 +88,8 @@ class PPO:
         old_logprobs = torch.stack(old_logprobs)
         
         # Optimize policy for K epochs
-        e_losses = np.zeros(4, dtype=np.float32)
+        f_losses = []
         for _ in range(self.K_epochs):
-            total_loss_ret = 0
             actor_loss_ret = 0
             critic_loss_ret = 0
             entropy_loss_ret = 0
@@ -126,8 +125,8 @@ class PPO:
             loss.mean().backward()
             self.optimizer.step()
 
-            loss_vec = np.array([loss.mean().detach().cpu().numpy(), actor_loss.mean().detach().cpu().numpy(), critic_loss.mean().detach().cpu().numpy(), 0])
-            e_losses += loss_vec
+            f_losses.append(loss.mean().detach().cpu().numpy().item())
+
             
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
@@ -135,7 +134,8 @@ class PPO:
         # clear buffer
         self.buffer.clear()
 
-        return e_losses / self.K_epochs
+        f_losses = np.array(f_losses)
+        return np.median(f_losses)
     
     
     def save(self, checkpoint_path):
