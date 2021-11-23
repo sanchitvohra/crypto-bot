@@ -1,4 +1,3 @@
-from numpy.lib.shape_base import apply_along_axis
 import torch
 import torch.nn as nn
 import numpy as np
@@ -24,10 +23,9 @@ def train():
     ep_len = 10000
     update_timestep = ep_len
 
-    action_std = 0.5                    # starting std for action distribution (Multivariate Normal)
-    action_std_decay_rate = 0.1         # linearly decay action_std (action_std = action_std - action_std_decay_rate)
-    action_std_decay_rate_slow = 0.025
-    min_action_std = 1e-12              # minimum action_std (stop decay after action_std <= min_action_std)
+    action_std = 0.1                       # starting std for action distribution (Multivariate Normal)
+    action_std_decay_rate = 0.005         # linearly decay action_std (action_std = action_std - action_std_decay_rate)
+    min_action_std = 0.01            # minimum action_std (stop decay after action_std <= min_action_std)
     action_std_decay_freq = 5 * update_timestep  # action_std decay frequency (in num timesteps)
 
     eps_clip = 0.2          # clip parameter for PPO
@@ -48,7 +46,7 @@ def train():
     max_trade = 100000.0 # max number of stocks
     trading_fee = 0.01
     history = 4 # number of stacks in state
-    reward_scaling = 10 ** -6
+    reward_scaling = 10 ** -4
     
     logger.info(f'Starting balance: {starting_balance}')
     logger.info(f'Maximum trade action: {max_trade}')
@@ -136,23 +134,34 @@ def train():
         traj_step += 1
         average_return = average_return / num_envs
         mean_loss = agent.update()
+        print(mean_loss.shape)
         agent_std = agent.action_std
-        logger.info(f'Average Reward: {average_return:15.3f}, Mean Loss: {mean_loss:10.4f}, Action Std: {agent_std:10.9f}')
-        agent.decay_action_std(action_std, traj_step, min_action_std)
+        logger.info(f'Average Reward: {average_return:15.3f}')
+        logger.info(f'Mean Loss: {mean_loss[0]:10.4f}, A/C/E: {mean_loss[1]:10.4f},{mean_loss[2]:10.4f},{mean_loss[3]:10.4f}')
+        logger.info(f'Action Std: {agent_std:10.9f}')
+
+        agent.action_std = action_std - traj_step * action_std_decay_rate
+        agent.set_action_std(agent.action_std)
+        # agent.decay_action_std(action_std, traj_step, min_action_std)
 
         venv.validate()
         state = venv.get_state(flatten=True)
         validation_return = 0
 
-        for t in range(10000):
+        mean_val_action = np.zeros(action_dim, dtype=np.float32)
+        for t in range(ep_len):
             state = torch.FloatTensor(state).to(device)
             with torch.no_grad():
                 action = agent.policy.validate(state)
+                mean_val_action += action
                 reward = venv.step(action)
                 validation_return += reward
                 state = venv.get_state(flatten=True)
         
+        mean_val_action /= ep_len
+        mean_val_action = str(list(mean_val_action))
         logger.info(f'Best Model Validation: {validation_return}')
+        logger.info(f'Mean Val action:  {mean_val_action}')
         if validation_return > max_validation_reward:
             max_validation_reward = validation_return
             if model_save_path != None:

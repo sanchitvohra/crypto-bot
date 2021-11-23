@@ -110,3 +110,9 @@ class CryptoEnv():
                 return np.hstack([normalized_state, normalized_account])
         else:
             return normalized_state, np.hstack([normalized_balance, normalized_account])
+
+    def get_price_state(self, flatten):
+        price_state = np.copy(self.state[:, :5])
+        price_state[:, :4] *= (10 ** -5)
+        price_state[:, 4] = (10 ** -8)
+

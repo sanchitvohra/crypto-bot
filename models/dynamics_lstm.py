@@ -19,8 +19,8 @@ class DynmaicsLSTM(nn.Module):
         )
 
     def init_hidden(self, batch_size, device):
-        return (torch.rand(self.num_layers, batch_size, self.hidden_dim, device=device),
-                torch.rand(self.num_layers, batch_size, self.hidden_dim, device=device))
+        return (torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device),
+                torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device))
 
     def forward(self, input, hidden):
         lstm_out, lstm_hidden = self.lstm(input, hidden)

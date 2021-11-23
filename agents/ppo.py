@@ -69,7 +69,7 @@ class PPO:
                 discounted_reward = reward + (self.gamma * discounted_reward)
                 env_rewards.insert(0, discounted_reward)
             env_rewards = torch.tensor(env_rewards, dtype=torch.float32).to(self.device)
-            env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
+            # env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
             rewards.append(env_rewards)
             
         rewards = torch.stack(rewards)
@@ -88,8 +88,13 @@ class PPO:
         old_logprobs = torch.stack(old_logprobs)
         
         # Optimize policy for K epochs
-        e_losses = []
+        e_losses = np.zeros(4, dtype=np.float32)
         for _ in range(self.K_epochs):
+            total_loss_ret = 0
+            actor_loss_ret = 0
+            critic_loss_ret = 0
+            entropy_loss_ret = 0
+
             loss = 0
             for i in range(self.num_envs):
                 # Evaluating old actions and values
@@ -107,13 +112,22 @@ class PPO:
                 surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
                 # final loss of clipped objective PPO
-                loss += -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards[i]) - 0.01*dist_entropy
+                actor_loss = -torch.min(surr1, surr2)
+                critic_loss = 0.5 * self.MseLoss(state_values, rewards[i])
+                entropy_loss = 0 # -0.01*dist_entropy
+                loss += actor_loss + critic_loss + entropy_loss
+
+                actor_loss_ret += actor_loss
+                critic_loss_ret += critic_loss
+                entropy_loss_ret += entropy_loss
             
             # take gradient step
             self.optimizer.zero_grad()
             loss.mean().backward()
             self.optimizer.step()
-            e_losses.append(loss.detach().mean().cpu().numpy())
+
+            loss_vec = np.array([loss.mean().detach().cpu().numpy(), actor_loss.mean().detach().cpu().numpy(), critic_loss.mean().detach().cpu().numpy(), 0])
+            e_losses += loss_vec
             
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
@@ -121,7 +135,7 @@ class PPO:
         # clear buffer
         self.buffer.clear()
 
-        return sum(e_losses) / self.K_epochs
+        return e_losses / self.K_epochs
     
     
     def save(self, checkpoint_path):
