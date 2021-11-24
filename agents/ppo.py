@@ -61,7 +61,7 @@ class PPO:
 
         return actions.detach().cpu().numpy()
 
-    def update(self):
+    def update(self, normalize=False):
         # Monte Carlo estimate of returns
         rewards = []
         for i in range(self.num_envs):
@@ -71,7 +71,8 @@ class PPO:
                 discounted_reward = reward + (self.gamma * discounted_reward)
                 env_rewards.insert(0, discounted_reward)
             env_rewards = torch.tensor(env_rewards, dtype=torch.float32).to(self.device)
-            env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
+            if normalize:
+                env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
             rewards.append(env_rewards)
             
         rewards = torch.stack(rewards)
