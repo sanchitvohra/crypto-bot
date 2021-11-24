@@ -40,7 +40,7 @@ def train(logDir = None):
     logger.info("Training loop starting...")
 
     # setup training configuration
-    training_steps = 32
+    training_steps = 1000
     K_epochs = 100
     ep_len = 10000
 
@@ -146,7 +146,7 @@ def train(logDir = None):
 
     if agent_name == 'PPO':
         agent = agents.PPO(state_dim, action_dim, actor, critic, lr_actor, lr_critic,
-        num_envs, gamma, K_epochs, eps_clip, action_std, device, False, 0.05, 0.01)
+        num_envs, gamma, K_epochs, eps_clip, action_std, device, True, 0.05, 0.01)
     else:
         agent = None
 
@@ -234,8 +234,9 @@ def train(logDir = None):
                 index = -1
             agent.action_std = action_std_compute[index]
             agent.set_action_std(agent.action_std)
-            # lr = agent.scheduler_step()
-            # writer.add_scalar("lr/Train", lr, traj_step)
+            lr = agent.scheduler_step()
+            writer.add_scalar("actor_lr/Train", lr[0], traj_step)
+            writer.add_scalar("critic_lr/Train", lr[1], traj_step)
 
         if traj_step % model_save_freq == 0:
             if model_save_path != None:

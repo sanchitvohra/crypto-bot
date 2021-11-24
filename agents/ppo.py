@@ -151,7 +151,7 @@ class PPO:
     
     def scheduler_step(self):
         self.scheduler.step()
-        return self.scheduler.get_lr()
+        return self.scheduler.get_last_lr()
     
     def save(self, checkpoint_path):
         torch.save(self.policy_old.state_dict(), checkpoint_path)
