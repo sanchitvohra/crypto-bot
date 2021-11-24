@@ -119,9 +119,9 @@ class PPO:
                 surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
                 # final loss of clipped objective PPO
-                actor_loss = -torch.min(surr1, surr2)
+                actor_loss = -1 * torch.min(surr1, surr2)
                 critic_loss = self.value_loss_factor * self.MseLoss(state_values, rewards[i])
-                entropy_loss = self.entropy_loss_factor * dist_entropy
+                entropy_loss = -1 * self.entropy_loss_factor * dist_entropy
                 loss += actor_loss + critic_loss + entropy_loss
 
                 actor_loss_ret += actor_loss

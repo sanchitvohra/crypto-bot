@@ -146,7 +146,7 @@ def train(logDir = None):
 
     if agent_name == 'PPO':
         agent = agents.PPO(state_dim, action_dim, actor, critic, lr_actor, lr_critic,
-        num_envs, gamma, K_epochs, eps_clip, action_std, device)
+        num_envs, gamma, K_epochs, eps_clip, action_std, device, False, 0.05, 0.01)
     else:
         agent = None
 
