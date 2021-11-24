@@ -42,7 +42,7 @@ def train(logDir = None):
     # setup training configuration
     training_steps = 1000
     K_epochs = 100
-    ep_len = 10000
+    ep_len = 2048
 
     # create abstraction    
     action_std = 0.5                    # starting std for action distribution (Multivariate Normal)
@@ -62,7 +62,7 @@ def train(logDir = None):
     data = preprocessing.load_data()
 
     # generate environments
-    num_envs = 4
+    num_envs = 8
     envs = []
     for i in range(num_envs): 
         envs.append(environments.CryptoEnv(data, starting_balance, max_trade, trading_fee, history))
@@ -144,9 +144,13 @@ def train(logDir = None):
     logger.info(f'Epsilon clip: {eps_clip}')
     logger.info(f'Gamma: {gamma}')
 
+    normalize = True
+
+    logger.info(f'NORMALIZZE {normalize}')
+
     if agent_name == 'PPO':
         agent = agents.PPO(state_dim, action_dim, actor, critic, lr_actor, lr_critic,
-        num_envs, gamma, K_epochs, eps_clip, action_std, device, True, 0.05, 0.01)
+        num_envs, gamma, K_epochs, eps_clip, action_std, device, normalize, 0.5, 0.01)
     else:
         agent = None
 

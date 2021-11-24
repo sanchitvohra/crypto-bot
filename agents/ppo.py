@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
+from torch.utils.data import TensorDataset, DataLoader
 
 from models.actor_critic import ActorCritic
 from utils.rollout_buffer import RolloutBuffer
@@ -93,6 +94,14 @@ class PPO:
         old_states = torch.stack(old_states)
         old_actions = torch.stack(old_actions)
         old_logprobs = torch.stack(old_logprobs)
+
+        old_states = old_states.view(old_states.shape[0] * old_states.shape[1], old_states.shape[2])
+        old_actions = old_actions.view(old_actions.shape[0] * old_actions.shape[1], old_actions.shape[2])
+        old_logprobs = old_logprobs.view(old_logprobs.shape[0] * old_logprobs.shape[1])
+        rewards = rewards.view(rewards.shape[0] * rewards.shape[1])
+
+        training_data = TensorDataset(old_states, old_actions, old_logprobs, rewards)
+        training_dataloader = DataLoader(training_data, batch_size=256, shuffle=True)
         
         # Optimize policy for K epochs
         f_losses = []
@@ -104,35 +113,36 @@ class PPO:
 
             total_loss = 0
             for i in range(self.num_envs):
-                # Evaluating old actions and values
-                logprobs, state_values, dist_entropy = self.policy.evaluate(old_states[i], old_actions[i])
+                for old_states, old_actions, old_logprobs, rewards in training_dataloader:
+                    # Evaluating old actions and values
+                    logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
 
-                # match state_values tensor dimensions with rewards tensor
-                state_values = torch.squeeze(state_values)
-                
-                # Finding the ratio (pi_theta / pi_theta__old)
-                ratios = torch.exp(logprobs - old_logprobs[i].detach())
+                    # match state_values tensor dimensions with rewards tensor
+                    state_values = torch.squeeze(state_values)
+                    
+                    # Finding the ratio (pi_theta / pi_theta__old)
+                    ratios = torch.exp(logprobs - old_logprobs.detach())
 
-                # Finding Surrogate Loss
-                advantages = rewards[i] - state_values.detach()   
-                surr1 = ratios * advantages
-                surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
+                    # Finding Surrogate Loss
+                    advantages = rewards - state_values.detach()   
+                    surr1 = ratios * advantages
+                    surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
-                # final loss of clipped objective PPO
-                actor_loss = -1 * torch.min(surr1, surr2)
-                critic_loss = self.value_loss_factor * self.MseLoss(state_values, rewards[i])
-                entropy_loss = -1 * self.entropy_loss_factor * dist_entropy
-                loss = actor_loss + critic_loss + entropy_loss
+                    # final loss of clipped objective PPO
+                    actor_loss = -1 * torch.min(surr1, surr2)
+                    critic_loss = self.value_loss_factor * self.MseLoss(state_values, rewards)
+                    entropy_loss = -1 * self.entropy_loss_factor * dist_entropy
+                    loss = actor_loss + critic_loss + entropy_loss
 
-                # take gradient step
-                self.optimizer.zero_grad()
-                loss.mean().backward()
-                self.optimizer.step()
-                
-                total_loss += loss
-                actor_loss_ret += actor_loss
-                critic_loss_ret += critic_loss
-                entropy_loss_ret += entropy_loss
+                    # take gradient step
+                    self.optimizer.zero_grad()
+                    loss.mean().backward()
+                    self.optimizer.step()
+                    
+                    total_loss += loss
+                    actor_loss_ret += actor_loss
+                    critic_loss_ret += critic_loss
+                    entropy_loss_ret += entropy_loss
 
             f_losses.append(total_loss.mean().detach().cpu().numpy().item())
             b_losses.append(np.array([actor_loss_ret.mean().detach().cpu().numpy().item(),
