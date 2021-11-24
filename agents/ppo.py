@@ -102,7 +102,7 @@ class PPO:
             critic_loss_ret = 0
             entropy_loss_ret = 0
 
-            loss = 0
+            total_loss = 0
             for i in range(self.num_envs):
                 # Evaluating old actions and values
                 logprobs, state_values, dist_entropy = self.policy.evaluate(old_states[i], old_actions[i])
@@ -122,18 +122,19 @@ class PPO:
                 actor_loss = -1 * torch.min(surr1, surr2)
                 critic_loss = self.value_loss_factor * self.MseLoss(state_values, rewards[i])
                 entropy_loss = -1 * self.entropy_loss_factor * dist_entropy
-                loss += actor_loss + critic_loss + entropy_loss
+                loss = actor_loss + critic_loss + entropy_loss
 
+                # take gradient step
+                self.optimizer.zero_grad()
+                loss.mean().backward()
+                self.optimizer.step()
+                
+                total_loss += loss
                 actor_loss_ret += actor_loss
                 critic_loss_ret += critic_loss
                 entropy_loss_ret += entropy_loss
-            
-            # take gradient step
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
 
-            f_losses.append(loss.mean().detach().cpu().numpy().item())
+            f_losses.append(total_loss.mean().detach().cpu().numpy().item())
             b_losses.append(np.array([actor_loss_ret.mean().detach().cpu().numpy().item(),
                 critic_loss_ret.mean().detach().cpu().numpy().item(),
                 entropy_loss_ret.mean().detach().cpu().numpy().item()]))
@@ -150,6 +151,7 @@ class PPO:
     
     def scheduler_step(self):
         self.scheduler.step()
+        return self.scheduler.get_lr()
     
     def save(self, checkpoint_path):
         torch.save(self.policy_old.state_dict(), checkpoint_path)

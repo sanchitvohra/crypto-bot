@@ -234,7 +234,8 @@ def train(logDir = None):
                 index = -1
             agent.action_std = action_std_compute[index]
             agent.set_action_std(agent.action_std)
-            agent.scheduler_step()
+            # lr = agent.scheduler_step()
+            # writer.add_scalar("lr/Train", lr, traj_step)
 
         if traj_step % model_save_freq == 0:
             if model_save_path != None:
