@@ -1,57 +1,76 @@
+######################################IMPORTS START#################################################
 import torch
-import torch.nn as nn
 import numpy as np
 
 import logging
 import os
+import sys
 import matplotlib.pyplot as plt
 
 import preprocessing
 import environments
 import models
 import agents
+import utils
+from torch.utils.tensorboard import SummaryWriter
 
-def train():
-    # Setup logging settings
-    FORMAT = '[%(levelname)s] %(message)s'
-    logging.basicConfig(format=FORMAT)
+######################################IMPORTS DONE#################################################
 
-    logger = logging.getLogger('common')
+def train(logDir = None):
+
+    ######################################SETUP START#################################################
+    FORMAT = logging.Formatter('[%(levelname)s] %(message)s')
+
+    logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    logger.info("Training loop starting...")
+    if not logDir:
+        logDir = "logs/"
+        logDir += "config" + str(len(os.listdir(logDir))).zfill(3)
+        os.mkdir(logDir)
 
+    fileHandler = logging.FileHandler("{0}/{1}.log".format(logDir, "training"))
+    fileHandler.setFormatter(FORMAT)
+    logger.addHandler(fileHandler)
+
+    consoleHandler = logging.StreamHandler()
+    consoleHandler.setFormatter(FORMAT)
+    logger.addHandler(consoleHandler)
+
+    logger.info("Training loop starting...")
 
     # setup training configuration
     training_steps = 32
     K_epochs = 100
     ep_len = 10000
+
+    # create abstraction    
     action_std = 0.5                    # starting std for action distribution (Multivariate Normal)
     action_std_decay_rate = 0.05        # linearly decay action_std (action_std = action_std - action_std_decay_rate)
     min_action_std = 0.1                # minimum action_std (stop decay after action_std <= min_action_std)
     action_std_decay_freq = 4           # action_std decay frequency (in num training steps)
-
+    action_std_compute = utils.linear_decay(action_std, action_std_decay_rate, min_action_std)
 
     # environment configuration
     starting_balance = 1000000.0        # starting portfolio amount in dollars
-    max_trade = 10000.0                # max number of $ amount for buy/sell
-    trading_fee = 0.05                  # trading fee during buy
+    max_trade = 10000.0                 # max number of $ amount for buy/sell
+    trading_fee = 0.01                  # trading fee during buy
     history = 4                         # number of stacks in state
-    reward_scaling = 10 ** -4           # scale the reward signal down
+    reward_scaling = 10 ** -3           # scale the reward signal down
 
     # data loading
     data = preprocessing.load_data()
 
     # generate environments
-    envs = []
     num_envs = 4
+    envs = []
     for i in range(num_envs): 
         envs.append(environments.CryptoEnv(data, starting_balance, max_trade, trading_fee, history))
     state = envs[0].get_state(flatten=True)
 
     # generate validation environment
     venv = environments.CryptoEnv(data, starting_balance, max_trade, trading_fee, history)
-    validate_freq = 10
+    validate_freq = 5
 
     state_dim = state.shape[0]
     action_dim = 5
@@ -67,11 +86,16 @@ def train():
 
     pretrained = False
     pretrained_path = None
-    model_save_path = "checkpoints/"
+    model_save_path = os.path.join(logDir, "checkpoints/")
+    os.mkdir(model_save_path)
     model_save_freq = 4
 
-    plot_save_path = "plots/"
+    plot_save_path = os.path.join(logDir, "plots/")
+    os.mkdir(plot_save_path)
     plot_save_freq = 1
+
+    for i in range(num_envs):
+        os.mkdir(os.path.join(plot_save_path, 'env' + str(i).zfill(2)))
 
     logger.info(f'Training steps: {training_steps}')
     logger.info(f'Model Optimization epochs: {K_epochs}')
@@ -96,7 +120,6 @@ def train():
         logger.info(f'Pretrained model path: {pretrained_path}')
     logger.info(f'Model save path: {model_save_path}')
     logger.info(f'Model save frequecy: {model_save_freq}')
-
 
     # setup actor critic networks
     actor = models.ActorNN(state_dim, action_dim, [512, 256, 256], device)
@@ -130,6 +153,11 @@ def train():
     if pretrained:
         agent.load(pretrained_path)
         logger.info(f'Loaded saved model: {pretrained_path}')
+
+    writer = SummaryWriter(logDir)
+
+    #########################################SETUP DONE##############################################
+    #########################################TRAINING START##############################################
 
     traj_step = 0
     time_step = 0
@@ -176,92 +204,66 @@ def train():
 
             states = np.array(states)
 
-        if traj_step % plot_save_freq == 0:
-            print("saving plots")
-            for i in range(len(envs)):
-                prices = trajectory_data[i, :, :5]
-                plt.figure()
-                plt.subplot(511)
-                plt.plot(prices[:, 0])                
-                plt.subplot(512)
-                plt.plot(prices[:, 1])
-                plt.subplot(513)
-                plt.plot(prices[:, 2])
-                plt.subplot(514)
-                plt.plot(prices[:, 3])
-                plt.subplot(515)
-                plt.plot(prices[:, 4])
-                plt.savefig(os.path.join(plot_save_path, f'step_{traj_step}_env_{i}_price.png'))
-
-                accounts = trajectory_data[i, :, 5:]
-                plt.figure()
-                plt.subplot(711)
-                plt.plot(accounts[:, 6])                
-                plt.subplot(712)
-                plt.plot(accounts[:, 0])
-                plt.subplot(713)
-                plt.plot(accounts[:, 1])
-                plt.subplot(714)
-                plt.plot(accounts[:, 2])
-                plt.subplot(715)
-                plt.plot(accounts[:, 3])
-                plt.subplot(716)
-                plt.plot(accounts[:, 4])
-                plt.subplot(717)
-                plt.plot(accounts[:, 5])             
-                plt.savefig(os.path.join(plot_save_path, f'step_{traj_step}_env_{i}_account.png'))
-
-                plt.close('all')
-
-        
         # increment step counter
         traj_step += 1
+
         average_return = average_return / num_envs
-
         # update agent using data
-        median_loss = agent.update()
-
-        agent_std = agent.action_std
+        median_loss, median_breakdown = agent.update()
 
         logger.info(f'Time Steps: {time_step}')
         logger.info(f'Average Reward: {average_return:15.3f}')
         logger.info(f'Median Loss: {median_loss:10.4f}')
-        logger.info(f'Action Std: {agent_std:10.9f}')
+        logger.info(f'Action Std: {agent.action_std:10.9f}')
+
+        writer.add_scalar("Average Return/Train", average_return, traj_step)
+        writer.add_scalar("Total Loss/Train", median_loss, traj_step)
+        writer.add_scalar("Action Std/Train", agent.action_std, traj_step)
+        writer.add_scalar("Actor Loss/Train", median_breakdown[0], traj_step)
+        writer.add_scalar("Value Loss/Train", median_breakdown[1], traj_step)
+        writer.add_scalar("Entropy Loss/Train", median_breakdown[2], traj_step)
+
+        if traj_step % plot_save_freq == 0:
+            for i in range(num_envs):
+                utils.plot_trajectory(trajectory_data[i], os.path.join(plot_save_path, 'env' + str(i).zfill(2)), traj_step)
 
         # update agent std
         if traj_step % action_std_decay_freq == 0:
-            agent.action_std = action_std - traj_step * action_std_decay_rate
-            if agent.action_std < min_action_std:
-                agent.action_std = min_action_std
-                agent.set_action_std(agent.action_std)
+            index = traj_step // action_std_decay_freq
+            if index > len(action_std_compute):
+                index = -1
+            agent.action_std = action_std_compute[index]
+            agent.set_action_std(agent.action_std)
+            agent.scheduler_step()
 
         if traj_step % model_save_freq == 0:
             if model_save_path != None:
                 agent.save(checkpoint_path=os.path.join(model_save_path, "model" + str(time_step).zfill(10) + ".pth"))
 
         if traj_step % validate_freq == 0:
-            venv.validate()
-            state = venv.get_state(flatten=True)
             validation_return = 0
-
-            mean_val_action = np.zeros(action_dim, dtype=np.float32)
-            for t in range(ep_len):
-                state = torch.FloatTensor(state).to(device)
-                with torch.no_grad():
-                    action = agent.policy.validate(state)
-                    mean_val_action += action
-                    reward = venv.step(action)
-                    validation_return += reward
-                    state = venv.get_state(flatten=True)
-            
-            mean_val_action /= ep_len
-            mean_val_action = str(list(mean_val_action))
-            logger.info(f'Model Validation: {validation_return}')
-            logger.info(f'Mean Val action:  {mean_val_action}')
+            for i in range(3):
+                venv.validate(i)
+                state = venv.get_state(flatten=True)
+                for t in range(ep_len):
+                    state = torch.FloatTensor(state).to(device)
+                    with torch.no_grad():
+                        action = agent.policy.validate(state)
+                        reward = venv.step(action)
+                        validation_return += reward
+                        state = venv.get_state(flatten=True)
+                
+            logger.info(f'Validation Reward: {validation_return / 3:15.3f}')
+            writer.add_scalar("Validation Reward/Test", validation_return / 3, traj_step)
             if validation_return > max_validation_reward:
                 max_validation_reward = validation_return
                 if model_save_path != None:
                     agent.save(checkpoint_path=os.path.join(model_save_path, "model.pth"))
 
+    #########################################TRAINING STOP##############################################
+
 if __name__ == "__main__":
-    train()
+    if len(sys.argv) == 1:
+        train()
+    else:
+        train(sys.argv[1])

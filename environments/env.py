@@ -17,7 +17,7 @@ class CryptoEnv():
     def reset(self, state_index = None):
         self.portfolio = self.starting_balance
         if not state_index:
-            self.state_index = random.randint(0, self.data.shape[1] - 10001 - self.history_len)
+            self.state_index = random.randint(0, self.data.shape[1] - 30001 - self.history_len)
         else:
             self.state_index = state_index
         self.state = self.data[:, self.state_index, :]
@@ -35,8 +35,8 @@ class CryptoEnv():
         self.num_coins = len(self.coins)
         self.state_dim = self.state.shape[1]
 
-    def validate(self):
-        self.reset(self.data.shape[1] - 10001 - self.history_len)
+    def validate(self, index):
+        self.reset(self.data.shape[1] - 30001 - self.history_len + index*10000)
 
     def step(self, actions):
         exec_actions = actions * self.max_trade

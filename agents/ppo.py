@@ -28,6 +28,8 @@ class PPO:
                         {'params': self.policy.critic.parameters(), 'lr': lr_critic}
                     ])
 
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, 0.9)
+
         self.policy_old = ActorCritic(state_dim, action_dim, actor, critic, action_std_init, device).to(device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
@@ -69,7 +71,7 @@ class PPO:
                 discounted_reward = reward + (self.gamma * discounted_reward)
                 env_rewards.insert(0, discounted_reward)
             env_rewards = torch.tensor(env_rewards, dtype=torch.float32).to(self.device)
-            # env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
+            env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
             rewards.append(env_rewards)
             
         rewards = torch.stack(rewards)
@@ -89,6 +91,7 @@ class PPO:
         
         # Optimize policy for K epochs
         f_losses = []
+        b_losses = []
         for _ in range(self.K_epochs):
             actor_loss_ret = 0
             critic_loss_ret = 0
@@ -113,7 +116,7 @@ class PPO:
                 # final loss of clipped objective PPO
                 actor_loss = -torch.min(surr1, surr2)
                 critic_loss = 0.5 * self.MseLoss(state_values, rewards[i])
-                entropy_loss = 0 # -0.01*dist_entropy
+                entropy_loss = -0.01*dist_entropy
                 loss += actor_loss + critic_loss + entropy_loss
 
                 actor_loss_ret += actor_loss
@@ -126,7 +129,9 @@ class PPO:
             self.optimizer.step()
 
             f_losses.append(loss.mean().detach().cpu().numpy().item())
-
+            b_losses.append(np.array([actor_loss_ret.mean().detach().cpu().numpy().item(),
+                critic_loss_ret.mean().detach().cpu().numpy().item(),
+                entropy_loss_ret.mean().detach().cpu().numpy().item()]))
             
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
@@ -135,8 +140,11 @@ class PPO:
         self.buffer.clear()
 
         f_losses = np.array(f_losses)
-        return np.median(f_losses)
+        b_losses = np.array(b_losses)
+        return np.median(f_losses), np.median(b_losses, axis=0)
     
+    def scheduler_step(self):
+        self.scheduler.step()
     
     def save(self, checkpoint_path):
         torch.save(self.policy_old.state_dict(), checkpoint_path)
