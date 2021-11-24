@@ -101,7 +101,7 @@ class PPO:
         rewards = rewards.view(rewards.shape[0] * rewards.shape[1])
 
         training_data = TensorDataset(old_states, old_actions, old_logprobs, rewards)
-        training_dataloader = DataLoader(training_data, batch_size=256, shuffle=True)
+        training_dataloader = DataLoader(training_data, batch_size=2048, shuffle=True)
         
         # Optimize policy for K epochs
         f_losses = []
