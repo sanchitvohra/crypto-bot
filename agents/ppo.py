@@ -7,7 +7,7 @@ from models.actor_critic import ActorCritic
 from utils.rollout_buffer import RolloutBuffer
 
 class PPO:
-    def __init__(self, state_dim, action_dim, actor, critic, lr_actor, lr_critic, num_envs, gamma, K_epochs, eps_clip, action_std_init, device):
+    def __init__(self, state_dim, action_dim, actor, critic, lr_actor, lr_critic, num_envs, gamma, K_epochs, eps_clip, action_std_init, device, normalize_reward = False, value_loss_factor = 0.05, entropy_loss_factor = 0.01):
         
         self.action_std = action_std_init
         self.num_envs = num_envs
@@ -18,6 +18,10 @@ class PPO:
 
         self.actor = actor
         self.critic = critic
+        
+        self.normalize_reward = normalize_reward
+        self.value_loss_factor = value_loss_factor
+        self.entropy_loss_factor = entropy_loss_factor
         
         self.buffer = RolloutBuffer(num_envs)
         
@@ -116,8 +120,8 @@ class PPO:
 
                 # final loss of clipped objective PPO
                 actor_loss = -torch.min(surr1, surr2)
-                critic_loss = 0.5 * self.MseLoss(state_values, rewards[i])
-                entropy_loss = -0.01*dist_entropy
+                critic_loss = self.value_loss_factor * self.MseLoss(state_values, rewards[i])
+                entropy_loss = self.entropy_loss_factor * dist_entropy
                 loss += actor_loss + critic_loss + entropy_loss
 
                 actor_loss_ret += actor_loss
