@@ -49,7 +49,7 @@ def train(logDir = None):
     max_trade = 10000.0                 # max number of $ amount for buy/sell
     trading_fee = 0.01                  # trading fee during buy
     history = 4                         # number of stacks in state
-    reward_scaling = 10 / max_trade     # scale the reward signal down
+    reward_scaling = 1 / max_trade     # scale the reward signal down
 
     # data loading
     data = preprocessing.load_data()
@@ -63,7 +63,7 @@ def train(logDir = None):
 
     # generate validation environment
     venv = environments.CryptoEnv(data, starting_balance, max_trade, trading_fee, history)
-    validate_freq = 1
+    validate_freq = 4
 
     state_dim = state.shape[0]
     action_dim = 5

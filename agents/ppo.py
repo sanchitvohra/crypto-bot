@@ -87,6 +87,8 @@ class PPO:
         old_logprobs = old_logprobs.view(old_logprobs.shape[0] * old_logprobs.shape[1])
         rewards = rewards.view(rewards.shape[0] * rewards.shape[1])
 
+        # print(rewards)
+
         # training_data = TensorDataset(old_states, old_actions, old_logprobs, rewards)
         # training_dataloader = DataLoader(training_data, batch_size=2048, shuffle=True)
         

@@ -5,6 +5,8 @@ import random
 class CryptoEnv():
     def __init__(self, data, balance, max_trade, trading_fee, history_len):
         self.data = data
+        self.data_mean = np.mean(self.data, axis=1)
+        self.data_std = np.std(self.data, axis=1)
         self.trading_fee = trading_fee
         self.history_len = history_len
         self.starting_balance = balance
@@ -87,9 +89,10 @@ class CryptoEnv():
 
     def normalize_state(self, state):
         normalized_state = np.copy(state)
-        normalized_state[:, :4] = normalized_state[:, :4] * (10 ** -5)
-        normalized_state[:, 4] = normalized_state[:, 4] * (10 ** -8)
-        normalized_state[:, 5:] = normalized_state[:, 5:] * (10 ** -4)
+        normalized_state = (normalized_state - self.data_mean) / (self.data_std + 1e-5)
+        # normalized_state[:, :4] = normalized_state[:, :4] * (10 ** -5)
+        # normalized_state[:, 4] = normalized_state[:, 4] * (10 ** -8)
+        # normalized_state[:, 5:] = normalized_state[:, 5:] * (10 ** -4)
         return normalized_state
 
     def get_state(self, flatten):
@@ -97,9 +100,9 @@ class CryptoEnv():
         if self.history_len > 0:
             normalized_history = np.stack(self.prev_states)
         normalized_account = np.copy(self.account_dollars)
-        normalized_account = normalized_account * (10 ** -6)
+        normalized_account = normalized_account / self.starting_balance
         normalized_balance = np.copy(self.balance)
-        normalized_balance = normalized_balance * (10 ** -8)
+        normalized_balance = normalized_balance / self.starting_balance
         
         if flatten:
             normalized_state = normalized_state.reshape(-1)
