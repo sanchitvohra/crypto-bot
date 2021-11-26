@@ -55,7 +55,7 @@ def train(logDir = None):
     data = preprocessing.load_data()
 
     # generate environments
-    num_envs = 16
+    num_envs = 64
     envs = []
     for i in range(num_envs): 
         envs.append(environments.CryptoEnv(data, starting_balance, max_trade, trading_fee, history))
@@ -116,8 +116,8 @@ def train(logDir = None):
     # setup actor critic networks
     actor = models.ActorNN(state_dim, action_dim, [512, 256, 256], device)
     critic = models.CriticNN(state_dim, action_dim, [512, 256, 256], device)
-    lr_actor = 1e-4      # learning rate for actor network
-    lr_critic = 1e-4     # learning rate for critic network
+    lr_actor = 1e-5      # learning rate for actor network
+    lr_critic = 1e-5     # learning rate for critic network
 
     logger.info('Actor: ')
     logger.info(actor)
@@ -136,13 +136,9 @@ def train(logDir = None):
     logger.info(f'Epsilon clip: {eps_clip}')
     logger.info(f'Gamma: {gamma}')
 
-    normalize = False
-
-    logger.info(f'NORMALIZZE {normalize}')
-
     if agent_name == 'PPO':
         agent = agents.PPO(state_dim, action_dim, actor, critic, lr_actor, lr_critic,
-        num_envs, gamma, K_epochs, eps_clip, device, normalize, 0.5, 0.01)
+        num_envs, gamma, K_epochs, eps_clip, device, True, 0.5, 0.00001)
     else:
         agent = None
 
@@ -212,7 +208,7 @@ def train(logDir = None):
         logger.info(f'Time Steps: {traj_step}/{time_step}')
         logger.info(f'Average Reward: {average_return:15.3f}')
         logger.info(f'Median Loss: {median_loss:10.4f}')
-        logger.info(f'A/C/E: {median_breakdown[0]:5.4f}/{median_breakdown[1]:5.4f}/{median_breakdown[2]:5.4f}')
+        logger.info(f'A/C/E: {median_breakdown[0]:7.6f}/{median_breakdown[1]:7.6f}/{median_breakdown[2]:7.6f}')
 
         writer.add_scalar("Average Return/Train", average_return, traj_step)
         writer.add_scalar("Total Loss/Train", median_loss, traj_step)
