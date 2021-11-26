@@ -113,10 +113,13 @@ class PPO:
 
             # final loss of clipped objective PPO
             actor_loss = -1 * torch.min(surr1, surr2)
-            critic_loss = 0.5 * self.MseLoss(state_values, rewards)
-            entropy_loss = -0.01 * dist_entropy
+            critic_loss = self.value_loss_factor * self.MseLoss(state_values, rewards)
+            entropy_loss = -1 * self.entropy_loss_factor * dist_entropy
 
             loss = actor_loss.mean() + critic_loss + entropy_loss.mean()
+
+            if self.normalize_reward:
+                print(loss)
             
             # take gradient step
             self.optimizer.zero_grad()

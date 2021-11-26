@@ -49,7 +49,7 @@ def train(logDir = None):
     max_trade = 10000.0                 # max number of $ amount for buy/sell
     trading_fee = 0.01                  # trading fee during buy
     history = 4                         # number of stacks in state
-    reward_scaling = 1 / max_trade     # scale the reward signal down
+    reward_scaling = 1 / (max_trade * 10)     # scale the reward signal down
 
     # data loading
     data = preprocessing.load_data()
@@ -212,6 +212,7 @@ def train(logDir = None):
         logger.info(f'Time Steps: {traj_step}/{time_step}')
         logger.info(f'Average Reward: {average_return:15.3f}')
         logger.info(f'Median Loss: {median_loss:10.4f}')
+        logger.info(f'A/C/E: {median_breakdown[0]:5.4f}/{median_breakdown[1]:5.4f}/{median_breakdown[2]:5.4f}')
 
         writer.add_scalar("Average Return/Train", average_return, traj_step)
         writer.add_scalar("Total Loss/Train", median_loss, traj_step)
