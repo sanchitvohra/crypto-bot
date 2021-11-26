@@ -41,28 +41,21 @@ def train(logDir = None):
 
     # setup training configuration
     training_steps = 1000
-    K_epochs = 100
-    ep_len = 2048
-
-    # create abstraction    
-    action_std = 0.5                    # starting std for action distribution (Multivariate Normal)
-    action_std_decay_rate = 0.05        # linearly decay action_std (action_std = action_std - action_std_decay_rate)
-    min_action_std = 0.1                # minimum action_std (stop decay after action_std <= min_action_std)
-    action_std_decay_freq = 4           # action_std decay frequency (in num training steps)
-    action_std_compute = utils.linear_decay(action_std, action_std_decay_rate, min_action_std)
+    K_epochs = 80
+    ep_len = 1000
 
     # environment configuration
     starting_balance = 1000000.0        # starting portfolio amount in dollars
     max_trade = 10000.0                 # max number of $ amount for buy/sell
     trading_fee = 0.01                  # trading fee during buy
     history = 4                         # number of stacks in state
-    reward_scaling = 10 ** -3           # scale the reward signal down
+    reward_scaling = 10 / max_trade     # scale the reward signal down
 
     # data loading
     data = preprocessing.load_data()
 
     # generate environments
-    num_envs = 8
+    num_envs = 16
     envs = []
     for i in range(num_envs): 
         envs.append(environments.CryptoEnv(data, starting_balance, max_trade, trading_fee, history))
@@ -70,7 +63,7 @@ def train(logDir = None):
 
     # generate validation environment
     venv = environments.CryptoEnv(data, starting_balance, max_trade, trading_fee, history)
-    validate_freq = 5
+    validate_freq = 1
 
     state_dim = state.shape[0]
     action_dim = 5
@@ -94,16 +87,14 @@ def train(logDir = None):
     os.mkdir(plot_save_path)
     plot_save_freq = 1
 
+    lr_decay_freq = 5
+
     for i in range(num_envs):
         os.mkdir(os.path.join(plot_save_path, 'env' + str(i).zfill(2)))
 
     logger.info(f'Training steps: {training_steps}')
     logger.info(f'Model Optimization epochs: {K_epochs}')
     logger.info(f'Episode length: {ep_len}')
-    logger.info(f'Action std init: {action_std}')
-    logger.info(f'Action std decay: {action_std_decay_rate}')
-    logger.info(f'Min action std: {min_action_std}')
-    logger.info(f'Action std decay freq: {action_std_decay_freq}')
 
     logger.info(f'Starting balance: {starting_balance}')
     logger.info(f'Maximum trade action: {max_trade}')
@@ -120,10 +111,11 @@ def train(logDir = None):
         logger.info(f'Pretrained model path: {pretrained_path}')
     logger.info(f'Model save path: {model_save_path}')
     logger.info(f'Model save frequecy: {model_save_freq}')
+    logger.info(f'Learning Rate Decay Frequency: {lr_decay_freq}')
 
     # setup actor critic networks
     actor = models.ActorNN(state_dim, action_dim, [512, 256, 256], device)
-    critic = models.CriticNN(state_dim, action_dim, [512, 256], device)
+    critic = models.CriticNN(state_dim, action_dim, [512, 256, 256], device)
     lr_actor = 1e-4      # learning rate for actor network
     lr_critic = 1e-4     # learning rate for critic network
 
@@ -144,13 +136,13 @@ def train(logDir = None):
     logger.info(f'Epsilon clip: {eps_clip}')
     logger.info(f'Gamma: {gamma}')
 
-    normalize = True
+    normalize = False
 
     logger.info(f'NORMALIZZE {normalize}')
 
     if agent_name == 'PPO':
         agent = agents.PPO(state_dim, action_dim, actor, critic, lr_actor, lr_critic,
-        num_envs, gamma, K_epochs, eps_clip, action_std, device, normalize, 0.5, 0.01)
+        num_envs, gamma, K_epochs, eps_clip, device, normalize, 0.5, 0.01)
     else:
         agent = None
 
@@ -208,6 +200,8 @@ def train(logDir = None):
 
             states = np.array(states)
 
+        agent.buffer.last_states = torch.from_numpy(states).to(torch.float32).to(device)
+
         # increment step counter
         traj_step += 1
 
@@ -215,14 +209,12 @@ def train(logDir = None):
         # update agent using data
         median_loss, median_breakdown = agent.update()
 
-        logger.info(f'Time Steps: {time_step}')
+        logger.info(f'Time Steps: {traj_step}/{time_step}')
         logger.info(f'Average Reward: {average_return:15.3f}')
         logger.info(f'Median Loss: {median_loss:10.4f}')
-        logger.info(f'Action Std: {agent.action_std:10.9f}')
 
         writer.add_scalar("Average Return/Train", average_return, traj_step)
         writer.add_scalar("Total Loss/Train", median_loss, traj_step)
-        writer.add_scalar("Action Std/Train", agent.action_std, traj_step)
         writer.add_scalar("Actor Loss/Train", median_breakdown[0], traj_step)
         writer.add_scalar("Value Loss/Train", median_breakdown[1], traj_step)
         writer.add_scalar("Entropy Loss/Train", median_breakdown[2], traj_step)
@@ -232,12 +224,7 @@ def train(logDir = None):
                 utils.plot_trajectory(trajectory_data[i], os.path.join(plot_save_path, 'env' + str(i).zfill(2)), traj_step)
 
         # update agent std
-        if traj_step % action_std_decay_freq == 0:
-            index = traj_step // action_std_decay_freq
-            if index > len(action_std_compute):
-                index = -1
-            agent.action_std = action_std_compute[index]
-            agent.set_action_std(agent.action_std)
+        if traj_step % lr_decay_freq == 0:
             lr = agent.scheduler_step()
             writer.add_scalar("actor_lr/Train", lr[0], traj_step)
             writer.add_scalar("critic_lr/Train", lr[1], traj_step)
@@ -252,9 +239,10 @@ def train(logDir = None):
                 venv.validate(i)
                 state = venv.get_state(flatten=True)
                 for t in range(ep_len):
-                    state = torch.FloatTensor(state).to(device)
+                    state = torch.from_numpy(state).to(torch.float32).to(device).view(1, -1)
                     with torch.no_grad():
                         action = agent.policy.validate(state)
+                        action = action.view(-1).cpu().numpy()
                         reward = venv.step(action)
                         validation_return += reward
                         state = venv.get_state(flatten=True)

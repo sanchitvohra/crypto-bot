@@ -1,6 +1,4 @@
 import torch.nn as nn
-from torch.distributions import MultivariateNormal
-from torch.distributions import Categorical
 
 class ActorNN(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_layers, device):
@@ -16,11 +14,14 @@ class ActorNN(nn.Module):
             else:
                 layers.append(nn.Linear(hidden_layers[depth - 1], hidden_layers[depth]))
                 layers.append(nn.Tanh())
-        layers.append(nn.Linear(hidden_layers[-1], action_dim))
-        layers.append(nn.Tanh())
-
+        # layers.append(nn.Linear(hidden_layers[-1], action_dim*2))
+        # layers.append(nn.Tanh())
         self.model = nn.Sequential(*layers)
+        self.mean = nn.Sequential(*[nn.Linear(hidden_layers[-1], action_dim), nn.Tanh()])
+        self.var = nn.Sequential(*[nn.Linear(hidden_layers[-1], action_dim), nn.Softmax(1)])
 
     def forward(self, state):
-        action = self.model(state)
-        return action
+        action_hidden = self.model(state)
+        action_mean = self.mean(action_hidden)
+        action_var = self.var(action_hidden)
+        return action_mean, action_var

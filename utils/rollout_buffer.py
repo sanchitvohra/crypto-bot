@@ -8,6 +8,7 @@ class RolloutBuffer:
         self.states = []
         self.logprobs = []
         self.rewards = []
+        self.last_states = []
         for _ in range(self.dim):
             self.actions.append([])
             self.states.append([])

@@ -8,9 +8,7 @@ from models.actor_critic import ActorCritic
 from utils.rollout_buffer import RolloutBuffer
 
 class PPO:
-    def __init__(self, state_dim, action_dim, actor, critic, lr_actor, lr_critic, num_envs, gamma, K_epochs, eps_clip, action_std_init, device, normalize_reward = False, value_loss_factor = 0.05, entropy_loss_factor = 0.01):
-        
-        self.action_std = action_std_init
+    def __init__(self, state_dim, action_dim, actor, critic, lr_actor, lr_critic, num_envs, gamma, K_epochs, eps_clip, device, normalize_reward = False, value_loss_factor = 0.5, entropy_loss_factor = 0.01):
         self.num_envs = num_envs
         self.gamma = gamma
         self.eps_clip = eps_clip
@@ -26,7 +24,7 @@ class PPO:
         
         self.buffer = RolloutBuffer(num_envs)
         
-        self.policy = ActorCritic(state_dim, action_dim, actor, critic, action_std_init, device).to(device)
+        self.policy = ActorCritic(state_dim, action_dim, actor, critic, device).to(device)
 
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': lr_actor},
@@ -35,24 +33,10 @@ class PPO:
 
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, 0.9)
 
-        self.policy_old = ActorCritic(state_dim, action_dim, actor, critic, action_std_init, device).to(device)
+        self.policy_old = ActorCritic(state_dim, action_dim, actor, critic, device).to(device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
-
-
-    def set_action_std(self, new_action_std):
-        self.action_std = new_action_std
-        self.policy.set_action_std(new_action_std)
-        self.policy_old.set_action_std(new_action_std)
-
-
-    def decay_action_std(self, alpha, step, min_action_std):
-        self.action_std = alpha / ((step+1) **2)
-        if self.action_std <= min_action_std:
-            self.action_std = min_action_std
-        self.set_action_std(self.action_std)
-
 
     def select_action(self, states):
         with torch.no_grad():
@@ -66,88 +50,86 @@ class PPO:
 
         return actions.detach().cpu().numpy()
 
-    def update(self, normalize=False):
-        # Monte Carlo estimate of returns
-        rewards = []
-        for i in range(self.num_envs):
-            env_rewards = []
-            discounted_reward = 0
-            for reward in reversed(self.buffer.rewards[i]):
-                discounted_reward = reward + (self.gamma * discounted_reward)
-                env_rewards.insert(0, discounted_reward)
-            env_rewards = torch.tensor(env_rewards, dtype=torch.float32).to(self.device)
-            if normalize:
-                env_rewards = (env_rewards - env_rewards.mean()) / (env_rewards.std() + 1e-7)
-            rewards.append(env_rewards)
-            
-        rewards = torch.stack(rewards)
-
+    def update(self):
         old_states = []
         old_actions = []
         old_logprobs = []
+        old_rewards = []
 
         for i in range(self.num_envs):
             old_states.append(torch.squeeze(torch.stack(self.buffer.states[i], dim=0)))
             old_actions.append(torch.squeeze(torch.stack(self.buffer.actions[i], dim=0)))
             old_logprobs.append(torch.squeeze(torch.stack(self.buffer.logprobs[i], dim=0)))
+            old_rewards.append(torch.tensor(self.buffer.rewards[i]).to(torch.float32).to(self.device))
 
         old_states = torch.stack(old_states)
         old_actions = torch.stack(old_actions)
         old_logprobs = torch.stack(old_logprobs)
+        old_rewards = torch.stack(old_rewards)
+        last_states = self.buffer.last_states.to(self.device)
+        last_critic = self.policy.critic(last_states).detach()
+
+        # states: [#envs, #traj, #dim]
+        # action: [#envs, #traj, #dim]
+        # logpro: [#envs, #traj]
+        # reward: [#envs, #traj]
+
+        rewards = torch.zeros(old_rewards.size(), dtype=torch.float32).to(self.device)
+
+        discounted_reward = 0
+        for i in range(old_states.shape[1]):
+            discounted_reward = old_rewards[:, -1 * (i+1)] + (self.gamma * discounted_reward)
+            last_state_reward = (self.gamma ** (i+1)) * last_critic
+            rewards[:, -1 * (i+1)] = discounted_reward + torch.squeeze(last_state_reward)
 
         old_states = old_states.view(old_states.shape[0] * old_states.shape[1], old_states.shape[2])
         old_actions = old_actions.view(old_actions.shape[0] * old_actions.shape[1], old_actions.shape[2])
         old_logprobs = old_logprobs.view(old_logprobs.shape[0] * old_logprobs.shape[1])
         rewards = rewards.view(rewards.shape[0] * rewards.shape[1])
 
-        training_data = TensorDataset(old_states, old_actions, old_logprobs, rewards)
-        training_dataloader = DataLoader(training_data, batch_size=2048, shuffle=True)
+        # training_data = TensorDataset(old_states, old_actions, old_logprobs, rewards)
+        # training_dataloader = DataLoader(training_data, batch_size=2048, shuffle=True)
         
         # Optimize policy for K epochs
         f_losses = []
         b_losses = []
-        for _ in range(self.K_epochs):
-            actor_loss_ret = 0
-            critic_loss_ret = 0
-            entropy_loss_ret = 0
+        for e in range(self.K_epochs):
+            # for old_states, old_actions, old_logprobs, rewards in training_dataloader:
+                # Evaluating old actions and values
+            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
 
-            total_loss = 0
-            for i in range(self.num_envs):
-                for old_states, old_actions, old_logprobs, rewards in training_dataloader:
-                    # Evaluating old actions and values
-                    logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
+            # match state_values tensor dimensions with rewards tensor
+            state_values = torch.squeeze(state_values)
+            
+            # Finding the ratio (pi_theta / pi_theta__old)
+            ratios = torch.exp(logprobs - old_logprobs.detach())
 
-                    # match state_values tensor dimensions with rewards tensor
-                    state_values = torch.squeeze(state_values)
-                    
-                    # Finding the ratio (pi_theta / pi_theta__old)
-                    ratios = torch.exp(logprobs - old_logprobs.detach())
+            # Finding Surrogate Loss
+            advantages = rewards - state_values.detach()   
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
-                    # Finding Surrogate Loss
-                    advantages = rewards - state_values.detach()   
-                    surr1 = ratios * advantages
-                    surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
+            # final loss of clipped objective PPO
+            actor_loss = -1 * torch.min(surr1, surr2)
+            critic_loss = 0.5 * self.MseLoss(state_values, rewards)
+            entropy_loss = -0.01 * dist_entropy
 
-                    # final loss of clipped objective PPO
-                    actor_loss = -1 * torch.min(surr1, surr2)
-                    critic_loss = self.value_loss_factor * self.MseLoss(state_values, rewards)
-                    entropy_loss = -1 * self.entropy_loss_factor * dist_entropy
-                    loss = actor_loss + critic_loss + entropy_loss
+            loss = actor_loss.mean() + critic_loss + entropy_loss.mean()
+            
+            # take gradient step
+            self.optimizer.zero_grad()
+            loss.mean().backward()
+            self.optimizer.step()
+            
+            total_loss = loss
+            actor_loss_ret = actor_loss.detach().mean()
+            critic_loss_ret = critic_loss.detach()
+            entropy_loss_ret = entropy_loss.detach().mean()
 
-                    # take gradient step
-                    self.optimizer.zero_grad()
-                    loss.mean().backward()
-                    self.optimizer.step()
-                    
-                    total_loss += loss
-                    actor_loss_ret += actor_loss
-                    critic_loss_ret += critic_loss
-                    entropy_loss_ret += entropy_loss
-
-            f_losses.append(total_loss.mean().detach().cpu().numpy().item())
-            b_losses.append(np.array([actor_loss_ret.mean().detach().cpu().numpy().item(),
-                critic_loss_ret.mean().detach().cpu().numpy().item(),
-                entropy_loss_ret.mean().detach().cpu().numpy().item()]))
+            f_losses.append(total_loss.detach().cpu().numpy().item())
+            b_losses.append(np.array([actor_loss_ret.cpu().numpy().item(),
+                critic_loss_ret.cpu().numpy().item(),
+                entropy_loss_ret.cpu().numpy().item()]))
             
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
